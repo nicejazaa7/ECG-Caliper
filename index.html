@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ECG Caliper</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --warn: #f0883e;
+    --ok: #3fb950;
+    --font: 'JetBrains Mono','Fira Mono','Consolas',monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font); font-size: 13px;
+    height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ── PORTRAIT NUDGE ── */
+  #portrait-warn {
+    display: none;
+    background: rgba(88,166,255,0.92);
+    color: #000; text-align: center;
+    padding: 6px 12px; font-size: 11px; font-weight: 700;
+    letter-spacing: .06em; flex-shrink: 0; z-index: 600;
+  }
+  @media (orientation: portrait) and (max-width: 900px) {
+    #portrait-warn { display: block; }
+  }
+
+  /* ── TOP BAR ── */
+  #topbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #topbar::-webkit-scrollbar { display: none; }
+  #topbar h1 {
+    font-size: 12px; font-weight: 700; letter-spacing:.08em;
+    color: var(--accent); white-space: nowrap; flex-shrink: 0;
+  }
+  .sep { width:1px; height:18px; background:var(--border); flex-shrink:0; }
+
+  #tool-group { display:flex; gap:3px; flex-shrink:0; }
+  .tool-btn {
+    padding: 6px 10px; border-radius:4px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text-muted); cursor:pointer;
+    font-family:var(--font); font-size:11px; font-weight:600;
+    letter-spacing:.05em; transition:all .1s; white-space:nowrap;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 32px;
+  }
+  .tool-btn:hover { border-color:var(--accent); color:var(--text); }
+  .tool-btn.active { background:var(--accent); color:#000; border-color:var(--accent); }
+
+  #mode-pill {
+    padding:3px 10px; border-radius:12px; font-size:10px; font-weight:700;
+    letter-spacing:.08em; white-space:nowrap; transition:all .2s; flex-shrink:0;
+    background:var(--surface2); border:1px solid var(--border); color:var(--text-muted);
+  }
+  #mode-pill.draw  { background:rgba(88,166,255,.15); border-color:var(--accent); color:var(--accent); }
+  #mode-pill.pan   { background:rgba(63,185,80,.12);  border-color:var(--ok);     color:var(--ok); }
+  #mode-pill.calib { background:rgba(240,136,62,.15); border-color:var(--warn);   color:var(--warn); }
+
+  #calib-btn {
+    padding:6px 10px; border-radius:4px; border:1px solid var(--warn);
+    background:transparent; color:var(--warn); cursor:pointer;
+    font-family:var(--font); font-size:11px; font-weight:600;
+    white-space:nowrap; flex-shrink:0; min-height:32px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #calib-btn:hover { background:var(--warn); color:#000; }
+  #calib-btn.calibrated { border-color:var(--ok); color:var(--ok); }
+  #calib-btn.calibrated:hover { background:var(--ok); color:#000; }
+
+  #calib-status {
+    font-size:10px; padding:2px 8px; border-radius:3px; white-space:nowrap;
+    display:none; flex-shrink:0;
+  }
+  #calib-status.est  { display:inline-block; background:rgba(240,136,62,.12); border:1px solid var(--warn); color:var(--warn); }
+  #calib-status.cal  { display:inline-block; background:rgba(63,185,80,.12);  border:1px solid var(--ok);   color:var(--ok);  }
+
+  #note-wrap { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  #note-input {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    font-family:var(--font); font-size:11px; padding:5px 8px;
+    border-radius:4px; width:160px;
+  }
+  #note-input:focus { outline:none; border-color:var(--accent); }
+
+  .action-btn {
+    padding:6px 10px; border-radius:4px; border:1px solid var(--border);
+    background:transparent; color:var(--text-muted); cursor:pointer;
+    font-family:var(--font); font-size:11px; transition:all .1s; white-space:nowrap;
+    flex-shrink:0; min-height:32px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .action-btn:hover { border-color:var(--accent); color:var(--text); }
+  .action-btn.danger:hover { border-color:#f85149; color:#f85149; }
+  .action-btn.active-pan { border-color:var(--ok); color:var(--ok); }
+
+  /* ── MODALS ── */
+  .modal-bg {
+    display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,.78); z-index:1000;
+    align-items:center; justify-content:center;
+    padding: 16px;
+  }
+  .modal-bg.open { display:flex; }
+  .modal-inner {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:20px; width:100%; max-width:340px;
+  }
+  .modal-inner h3 { font-size:13px; margin-bottom:8px; color:var(--accent); }
+  .modal-inner p  { font-size:11px; color:var(--text-muted); margin-bottom:12px; line-height:1.65; }
+  .modal-inner input {
+    width:100%; background:var(--surface2); border:1px solid var(--border);
+    color:var(--text); font-family:var(--font); font-size:13px;
+    padding:8px 10px; border-radius:4px; margin-bottom:12px;
+  }
+  .modal-inner input:focus { outline:none; border-color:var(--accent); }
+  .modal-btns { display:flex; gap:8px; justify-content:flex-end; }
+  .modal-btns button {
+    padding:7px 16px; border-radius:4px; border:1px solid var(--border);
+    background:transparent; color:var(--text); font-family:var(--font);
+    font-size:12px; cursor:pointer; min-height:36px;
+  }
+  .modal-btns button.confirm      { background:var(--accent); color:#000; border-color:var(--accent); }
+  .modal-btns button.warn-confirm { background:var(--warn);   color:#000; border-color:var(--warn);   }
+
+  /* ── MAIN ── */
+  #main { display:flex; flex:1; overflow:hidden; position:relative; }
+
+  #canvas-wrap {
+    flex:1; position:relative; overflow:hidden;
+    background:#0a0a0a; cursor:grab; touch-action:none;
+  }
+  #canvas-wrap.drawing { cursor:crosshair; }
+  #ecg-img { position:absolute; transform-origin:0 0; user-select:none; pointer-events:none; }
+  #overlay  { position:absolute; inset:0; pointer-events:none; }
+
+  #dropzone {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px;
+    color:var(--text-muted); z-index:10;
+  }
+  #dropzone.hidden { display:none; }
+  #dropzone svg { opacity:.25; }
+  #dropzone p { font-size:14px; }
+  #upload-btn-drop {
+    padding:10px 24px; border-radius:6px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text); cursor:pointer;
+    font-family:var(--font); font-size:13px;
+    -webkit-appearance:none; appearance:none;
+  }
+  #upload-btn-drop:hover { border-color:var(--accent); }
+
+  #note-display {
+    position:absolute; bottom:8px; left:8px;
+    background:rgba(13,17,23,.88); border:1px solid var(--border);
+    border-radius:4px; padding:5px 10px; font-size:11px;
+    color:var(--text); max-width:420px; pointer-events:none;
+    display:none; z-index:5; line-height:1.5;
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width:230px; background:var(--surface);
+    border-left:1px solid var(--border);
+    display:flex; flex-direction:column; overflow:hidden; flex-shrink:0;
+  }
+  #sidebar-header {
+    padding:9px 12px; border-bottom:1px solid var(--border);
+    font-size:10px; font-weight:700; letter-spacing:.1em;
+    color:var(--text-muted); text-transform:uppercase;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #sb-close-btn {
+    display:none; background:none; border:none;
+    color:var(--text-muted); cursor:pointer; font-size:16px; padding:0 2px;
+  }
+  #measurements-list { flex:1; overflow-y:auto; padding:8px; }
+  .meas-group-hdr {
+    font-size:9px; font-weight:700; letter-spacing:.12em;
+    color:var(--text-muted); padding:8px 6px 3px; text-transform:uppercase;
+  }
+  .meas-item {
+    display:flex; align-items:center; gap:6px;
+    padding:6px 6px; border-radius:4px; margin-bottom:2px;
+    cursor:pointer; transition:background .1s;
+  }
+  .meas-item:hover { background:var(--surface2); }
+  .meas-item.selected { background:var(--surface2); outline:1px solid var(--accent); }
+  .meas-dot  { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .meas-label { flex:1; font-size:11px; font-weight:600; letter-spacing:.04em; }
+  .meas-value { font-size:10px; color:var(--text-muted); white-space:nowrap; }
+  .meas-value.cal { color:var(--ok); }
+  .meas-del {
+    background:none; border:none; color:var(--text-muted);
+    cursor:pointer; font-size:16px; line-height:1; padding:2px 4px;
+    opacity:0; transition:opacity .1s; min-width:24px; text-align:center;
+  }
+  .meas-item:hover .meas-del { opacity:1; }
+  .meas-del:hover { color:#f85149; }
+
+  /* Mobile sidebar overlay */
+  #sidebar-overlay {
+    display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,.5); z-index:190;
+  }
+
+  /* ── STATUS BAR ── */
+  #statusbar {
+    padding:4px 12px; background:var(--surface);
+    border-top:1px solid var(--border); font-size:10px;
+    color:var(--text-muted); display:flex; gap:16px;
+    flex-shrink:0; align-items:center; overflow:hidden;
+  }
+  #sb-hint { flex:1; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  #measurements-list::-webkit-scrollbar { width:4px; }
+  #measurements-list::-webkit-scrollbar-track { background:var(--surface); }
+  #measurements-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── MOBILE RESPONSIVE ── */
+  @media (max-width: 767px) {
+    #topbar h1 { font-size: 11px; }
+    #note-wrap { display: none; }
+    #calib-status { display: none !important; }
+
+    #sidebar {
+      position: fixed;
+      right: -240px;
+      top: 0; bottom: 0;
+      width: 240px;
+      z-index: 200;
+      transition: right 0.25s ease;
+    }
+    #sidebar.mobile-open {
+      right: 0;
+    }
+    #sidebar-overlay.visible { display: block; }
+    #sb-close-btn { display: block; }
+
+    #statusbar { display: none; }
+
+    .tool-btn { padding: 7px 10px; font-size: 11px; }
+    .action-btn { padding: 7px 9px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="portrait-warn">↻ Rotate to landscape for best ECG viewing</div>
+
+<div id="topbar">
+  <h1>⬡ ECG</h1>
+  <div class="sep"></div>
+
+  <div id="tool-group">
+    <button class="tool-btn" data-tool="RR">RR</button>
+    <button class="tool-btn" data-tool="PR">PR</button>
+    <button class="tool-btn" data-tool="PP">PP</button>
+    <button class="tool-btn" data-tool="QRS">QRS</button>
+    <button class="tool-btn" data-tool="QT">QT</button>
+    <button class="tool-btn" data-tool="CUSTOM" id="custom-tool-btn">+ CUST</button>
+  </div>
+
+  <div id="mode-pill" class="pan">PAN</div>
+  <div class="sep"></div>
+
+  <button class="action-btn active-pan" id="pan-btn" title="Toggle Pan [P]">✋ Pan</button>
+  <button id="calib-btn">⊕ Cal</button>
+  <span id="calib-status"></span>
+  <div class="sep"></div>
+
+  <div id="note-wrap">
+    <span style="color:var(--text-muted);font-size:10px;white-space:nowrap">DX</span>
+    <input type="text" id="note-input" placeholder="Dx note…" maxlength="300">
+  </div>
+
+  <button class="action-btn" id="load-btn">📂</button>
+  <input type="file" id="file-input"
+         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+         style="position:fixed;top:-200px;left:-200px;width:1px;height:1px;opacity:0;pointer-events:none">
+  <div class="sep"></div>
+  <button class="action-btn" id="zoom-in-btn" title="Zoom in">＋</button>
+  <button class="action-btn" id="zoom-out-btn" title="Zoom out">－</button>
+  <button class="action-btn" id="reset-btn" title="Fit to screen">Fit</button>
+  <div class="sep"></div>
+  <button class="action-btn" id="rot-ccw-btn" title="Rotate 90° counter-clockwise">↺</button>
+  <button class="action-btn" id="rot-cw-btn"  title="Rotate 90° clockwise">↻</button>
+  <div class="sep"></div>
+  <button class="action-btn" id="export-btn">⬇ Save</button>
+  <button class="action-btn danger" id="clear-btn">✕</button>
+  <button class="action-btn" id="sidebar-toggle-btn" title="Measurements">☰</button>
+</div>
+
+<div id="main">
+  <div id="canvas-wrap">
+    <div id="dropzone">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+      </svg>
+      <p>Drop ECG image here</p>
+      <button id="upload-btn-drop">Choose file</button>
+      <span style="font-size:10px;opacity:.5">JPG · PNG · WebP · HEIC</span>
+    </div>
+    <img id="ecg-img" src="" alt="" crossorigin="anonymous">
+    <svg id="overlay" xmlns="http://www.w3.org/2000/svg" style="position:absolute;inset:0;width:100%;height:100%"></svg>
+    <div id="note-display"></div>
+  </div>
+
+  <div id="sidebar-overlay"></div>
+
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <span>Measurements</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="sb-cal-mode" style="font-size:9px"></span>
+        <button id="sb-close-btn" title="Close">✕</button>
+      </div>
+    </div>
+    <div id="measurements-list"></div>
+  </div>
+</div>
+
+<div id="statusbar">
+  <span id="sb-tool">Tool: —</span>
+  <span id="sb-count">Calipers: 0</span>
+  <span id="sb-zoom">Zoom: 100%</span>
+  <span id="sb-pos">x:— y:—</span>
+  <span id="sb-hint">Pan · tap a tool to draw · drag handle circles to resize · drag body to move</span>
+</div>
+
+<!-- CUSTOM LABEL MODAL -->
+<div class="modal-bg" id="custom-modal">
+  <div class="modal-inner">
+    <h3>Custom Caliper Label</h3>
+    <p>Short label ≤10 chars. Calipers sharing a label share a color family.</p>
+    <input type="text" id="custom-label-input" placeholder="e.g. AH, HV, VA…" maxlength="10">
+    <div class="modal-btns">
+      <button id="custom-cancel">Cancel</button>
+      <button class="confirm" id="custom-ok">Set & Draw</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALIBRATE ENTRY MODAL -->
+<div class="modal-bg" id="calib-modal">
+  <div class="modal-inner">
+    <h3>Calibrate Paper Speed</h3>
+    <p>
+      Click OK → draw one caliper over a <b>known</b> ECG grid distance.<br><br>
+      You will then enter how many ms that span represents.<br><br>
+      Tip: 1 large box = 200 ms · 5 large boxes = 1000 ms (25 mm/s)
+    </p>
+    <div class="modal-btns">
+      <button id="calib-cancel">Cancel</button>
+      <button class="warn-confirm" id="calib-ok">Enter Calibration Mode</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALIBRATE VALUE MODAL -->
+<div class="modal-bg" id="calib-val-modal">
+  <div class="modal-inner">
+    <h3>Enter Known Duration</h3>
+    <p>How many milliseconds does the span you just drew represent?</p>
+    <input type="number" id="calib-ms-input" placeholder="e.g. 200" min="1" max="9999" step="1">
+    <div class="modal-btns">
+      <button id="calib-val-cancel">Cancel</button>
+      <button class="warn-confirm" id="calib-val-ok">Apply Calibration</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════ */
+const TOOLS = {
+  RR:     { color:'#e05252' },
+  PR:     { color:'#52abe0' },
+  PP:     { color:'#52e0a0' },
+  QRS:    { color:'#e0b852' },
+  QT:     { color:'#b852e0' },
+  CUSTOM: { color:'#e08852' },
+};
+
+/* Hit-test tolerances in screen px — generous for touch */
+const END_HIT  = 22;
+const BODY_HIT = 14;
+
+/* ═══════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════ */
+let imgLoaded = false, imgNatW = 1, imgNatH = 1;
+let scale = 1, offX = 0, offY = 0;
+
+let activeTool  = 'RR';
+let customLabel = '';
+let measurements = [];
+let counters     = {};
+let selectedId   = null;
+
+/* calibration */
+let msPxRatio       = null;
+let calibMode       = false;
+let calibPendingPx  = null;
+
+/*
+  iMode: 'idle' | 'draw' | 'calib-draw' | 'pan' | 'drag-body' | 'drag-end1' | 'drag-end2'
+  panSticky: true = always in pan unless a tool is actively selected
+*/
+let iMode       = 'idle';
+let panSticky   = true;   // DEFAULT: start in pan mode
+let drawStart   = null;
+let dragTarget  = null;
+let dragOff     = {dx:0, dy:0};
+let panOrigin   = null;
+
+/* ═══════════════════════════════════════════════
+   DOM
+═══════════════════════════════════════════════ */
+const canvasWrap  = document.getElementById('canvas-wrap');
+const ecgImg      = document.getElementById('ecg-img');
+const overlay     = document.getElementById('overlay');
+const dropzone    = document.getElementById('dropzone');
+const noteInput   = document.getElementById('note-input');
+const noteDisplay = document.getElementById('note-display');
+const measureList = document.getElementById('measurements-list');
+const modePill    = document.getElementById('mode-pill');
+const sbTool      = document.getElementById('sb-tool');
+const sbCount     = document.getElementById('sb-count');
+const sbZoom      = document.getElementById('sb-zoom');
+const sbPos       = document.getElementById('sb-pos');
+const calibStatus = document.getElementById('calib-status');
+const sbCalMode   = document.getElementById('sb-cal-mode');
+const panBtn      = document.getElementById('pan-btn');
+const sidebar     = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+/* ═══════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════ */
+function makeShades(hex, n) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return Array.from({length:n},(_,i)=>{
+    const f = n===1 ? 1 : 0.65 + (i/(n-1))*0.55;
+    return `rgb(${Math.min(255,Math.round(r*f))},${Math.min(255,Math.round(g*f))},${Math.min(255,Math.round(b*f))})`;
+  });
+}
+
+function toImg(cx,cy)    { return {ix:(cx-offX)/scale, iy:(cy-offY)/scale}; }
+function toCanvas(ix,iy) { return {cx:ix*scale+offX,   cy:iy*scale+offY};   }
+
+function evPt(e) {
+  const r = canvasWrap.getBoundingClientRect();
+  const s = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  return { cx: s.clientX-r.left, cy: s.clientY-r.top };
+}
+
+function fmtValue(imgDx, imgDy) {
+  if (msPxRatio !== null) {
+    const ms = Math.round(Math.abs(imgDx) * msPxRatio);
+    return `${ms} ms`;
+  }
+  return null;
+}
+
+function setMode(m) {
+  iMode = m;
+  if (panSticky || m==='pan') {
+    modePill.textContent='PAN'; modePill.className='pan';
+  } else if (m==='draw') {
+    modePill.textContent='DRAW'; modePill.className='draw';
+  } else if (m==='calib-draw') {
+    modePill.textContent='CALIBRATE'; modePill.className='calib';
+  } else {
+    modePill.textContent='IDLE'; modePill.className='draw';
+  }
+}
+
+function updateCursor() {
+  if (panSticky || iMode==='pan') {
+    canvasWrap.style.cursor = iMode==='pan' ? 'grabbing' : 'grab';
+    canvasWrap.classList.remove('drawing');
+  } else {
+    canvasWrap.style.cursor = 'crosshair';
+    canvasWrap.classList.add('drawing');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   MOBILE SIDEBAR TOGGLE
+═══════════════════════════════════════════════ */
+function openSidebar() {
+  sidebar.classList.add('mobile-open');
+  sidebarOverlay.classList.add('visible');
+}
+function closeSidebar() {
+  sidebar.classList.remove('mobile-open');
+  sidebarOverlay.classList.remove('visible');
+}
+document.getElementById('sidebar-toggle-btn').addEventListener('click', openSidebar);
+document.getElementById('sb-close-btn').addEventListener('click', closeSidebar);
+sidebarOverlay.addEventListener('click', closeSidebar);
+
+/* ═══════════════════════════════════════════════
+   FILE LOAD
+═══════════════════════════════════════════════ */
+const fileInput = document.getElementById('file-input');
+
+function triggerFilePicker(){
+  fileInput.value='';
+  fileInput.click();
+}
+document.getElementById('load-btn').addEventListener('click', triggerFilePicker);
+document.getElementById('upload-btn-drop').addEventListener('click', triggerFilePicker);
+
+fileInput.addEventListener('change', e=>{
+  if(e.target.files && e.target.files[0]) loadFile(e.target.files[0]);
+});
+canvasWrap.addEventListener('dragover', e=>e.preventDefault());
+canvasWrap.addEventListener('drop', e=>{
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')) loadFile(f);
+});
+
+function loadFile(f) {
+  const url = URL.createObjectURL(f);
+  ecgImg.onload = ()=>{
+    imgNatW=ecgImg.naturalWidth; imgNatH=ecgImg.naturalHeight;
+    imgLoaded=true; fitImage();
+    dropzone.classList.add('hidden');
+    measurements=[]; counters={}; selectedId=null;
+    msPxRatio=null; calibMode=false;
+    updateCalibUI();
+    /* Stay in pan mode after loading */
+    panSticky=true; updatePanButton(); setMode('pan');
+    render(); updateSidebar();
+  };
+  ecgImg.src=url;
+}
+
+function fitImage() {
+  const cw=canvasWrap.clientWidth, ch=canvasWrap.clientHeight;
+  scale=Math.min(cw/imgNatW, ch/imgNatH)*0.97;
+  offX=(cw-imgNatW*scale)/2; offY=(ch-imgNatH*scale)/2;
+  applyTransform();
+}
+function applyTransform() {
+  ecgImg.style.transform=`translate(${offX}px,${offY}px) scale(${scale})`;
+  sbZoom.textContent=`Zoom: ${Math.round(scale*100)}%`;
+}
+
+/* ═══════════════════════════════════════════════
+   IMAGE ROTATION (canvas-based — no coord-system change)
+═══════════════════════════════════════════════ */
+function doRotate(deg) {
+  if (!imgLoaded) return;
+
+  const canvas = document.createElement('canvas');
+  const isSwapped = Math.abs(deg % 180) !== 0;
+
+  if (isSwapped) {
+    canvas.width  = imgNatH;
+    canvas.height = imgNatW;
+  } else {
+    canvas.width  = imgNatW;
+    canvas.height = imgNatH;
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(deg * Math.PI / 180);
+  ctx.drawImage(ecgImg, -imgNatW / 2, -imgNatH / 2);
+
+  /* Transform existing measurement coordinates to match rotation */
+  const oldW = imgNatW, oldH = imgNatH;
+  measurements.forEach(m => {
+    let nx1, ny1, nx2, ny2;
+    if (deg === 90) {
+      /* CW 90: (x,y) -> (oldH-y, x) */
+      nx1=oldH-m.y1; ny1=m.x1;
+      nx2=oldH-m.y2; ny2=m.x2;
+    } else if (deg === -90) {
+      /* CCW 90: (x,y) -> (y, oldW-x) */
+      nx1=m.y1; ny1=oldW-m.x1;
+      nx2=m.y2; ny2=oldW-m.x2;
+    } else {
+      /* 180: (x,y) -> (oldW-x, oldH-y) */
+      nx1=oldW-m.x1; ny1=oldH-m.y1;
+      nx2=oldW-m.x2; ny2=oldH-m.y2;
+    }
+    m.x1=nx1; m.y1=ny1; m.x2=nx2; m.y2=ny2;
+    m._spanX=m.x2-m.x1; m._spanY=m.y2-m.y1;
+  });
+
+  canvas.toBlob(blob => {
+    const newUrl = URL.createObjectURL(blob);
+    ecgImg.onload = () => {
+      imgNatW = ecgImg.naturalWidth;
+      imgNatH = ecgImg.naturalHeight;
+      fitImage(); render(); updateSidebar();
+    };
+    ecgImg.src = newUrl;
+  }, 'image/png');
+}
+
+document.getElementById('rot-cw-btn').addEventListener('click',  ()=>doRotate(90));
+document.getElementById('rot-ccw-btn').addEventListener('click', ()=>doRotate(-90));
+
+/* ═══════════════════════════════════════════════
+   TOOL BUTTONS
+═══════════════════════════════════════════════ */
+document.querySelectorAll('.tool-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    if(btn.dataset.tool==='CUSTOM'){ openCustomModal(); return; }
+    setTool(btn.dataset.tool);
+  });
+});
+
+function setTool(t) {
+  activeTool=t;
+  document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector(`[data-tool="${t}"]`).classList.add('active');
+  sbTool.textContent=`Tool: ${t==='CUSTOM'?(customLabel||'CUSTOM'):t}`;
+  /* entering draw mode — turn off pan sticky */
+  panSticky=false; updatePanButton(); setMode('draw'); updateCursor();
+}
+
+/* ═══════════════════════════════════════════════
+   PAN BUTTON
+═══════════════════════════════════════════════ */
+panBtn.addEventListener('click', ()=>{
+  panSticky = !panSticky;
+  /* deselect any tool button if going to pan */
+  if(panSticky) document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
+  updatePanButton();
+});
+
+function updatePanButton() {
+  if(panSticky) {
+    panBtn.classList.add('active-pan');
+    setMode('pan');
+  } else {
+    panBtn.classList.remove('active-pan');
+    setMode(iMode==='pan'?'idle':iMode);
+  }
+  updateCursor();
+}
+
+/* ═══════════════════════════════════════════════
+   ZOOM
+═══════════════════════════════════════════════ */
+document.getElementById('zoom-in-btn').addEventListener('click',  ()=>zoomAt(canvasWrap.clientWidth/2, canvasWrap.clientHeight/2, 1.25));
+document.getElementById('zoom-out-btn').addEventListener('click', ()=>zoomAt(canvasWrap.clientWidth/2, canvasWrap.clientHeight/2, 0.8));
+document.getElementById('reset-btn').addEventListener('click',    ()=>{ if(imgLoaded){ fitImage(); render(); } });
+canvasWrap.addEventListener('wheel', e=>{
+  e.preventDefault(); if(!imgLoaded) return;
+  const {cx,cy}=evPt(e);
+  zoomAt(cx,cy, e.deltaY<0?1.12:0.88);
+},{passive:false});
+
+function zoomAt(cx,cy,f) {
+  const {ix,iy}=toImg(cx,cy);
+  scale=Math.max(0.05, Math.min(30, scale*f));
+  offX=cx-ix*scale; offY=cy-iy*scale;
+  applyTransform(); render();
+}
+
+/* Pinch-to-zoom on touch */
+let lastTouchDist = null;
+let lastTouchMid  = null;
+
+canvasWrap.addEventListener('touchstart', e=>{
+  if(e.touches.length===2) {
+    lastTouchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    lastTouchMid = {
+      cx: (e.touches[0].clientX + e.touches[1].clientX)/2 - canvasWrap.getBoundingClientRect().left,
+      cy: (e.touches[0].clientY + e.touches[1].clientY)/2 - canvasWrap.getBoundingClientRect().top
+    };
+  }
+},{passive:false});
+
+canvasWrap.addEventListener('touchmove', e=>{
+  if(e.touches.length===2 && lastTouchDist!==null) {
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const f = dist / lastTouchDist;
+    lastTouchDist = dist;
+    zoomAt(lastTouchMid.cx, lastTouchMid.cy, f);
+    return;
+  }
+},{passive:false});
+
+canvasWrap.addEventListener('touchend', e=>{
+  if(e.touches.length < 2) lastTouchDist = null;
+},{passive:false});
+
+/* ═══════════════════════════════════════════════
+   HIT TEST
+═══════════════════════════════════════════════ */
+function hitTest(cx,cy) {
+  for(let i=measurements.length-1; i>=0; i--){
+    const m=measurements[i];
+    const p1=toCanvas(m.x1,m.y1), p2=toCanvas(m.x2,m.y2);
+    const midY=(p1.cy+p2.cy)/2;
+
+    /* endpoint circles — hit radius END_HIT */
+    if(Math.hypot(cx-p1.cx, cy-midY) <= END_HIT) return {type:'end1', m};
+    if(Math.hypot(cx-p2.cx, cy-midY) <= END_HIT) return {type:'end2', m};
+
+    /* body bar */
+    const inXRange = cx >= Math.min(p1.cx,p2.cx)-4 && cx <= Math.max(p1.cx,p2.cx)+4;
+    if(Math.abs(cy-midY) <= BODY_HIT && inXRange) return {type:'body', m};
+  }
+  return {type:null, m:null};
+}
+
+/* ═══════════════════════════════════════════════
+   POINTER EVENTS — single consolidated handler set
+═══════════════════════════════════════════════ */
+canvasWrap.addEventListener('mousedown',  handleDown);
+canvasWrap.addEventListener('mousemove',  handleMove);
+canvasWrap.addEventListener('mouseup',    handleUp);
+canvasWrap.addEventListener('mouseleave', ()=>{
+  if(iMode==='draw'||iMode==='calib-draw'){ iMode='idle'; render(); }
+});
+canvasWrap.addEventListener('touchstart', e=>{ e.preventDefault(); if(e.touches.length===1) handleDown(e); },{passive:false});
+canvasWrap.addEventListener('touchmove',  e=>{ e.preventDefault(); if(e.touches.length===1) handleMove(e); },{passive:false});
+canvasWrap.addEventListener('touchend',   e=>{ e.preventDefault(); handleUp(e); },{passive:false});
+
+function handleDown(e) {
+  const {cx,cy}=evPt(e);
+  const {ix,iy}=toImg(cx,cy);
+
+  /* Pan mode — two-finger handled above; single touch / mouse pan */
+  if(panSticky) {
+    iMode='pan'; panOrigin={cx,cy,offX,offY};
+    canvasWrap.style.cursor='grabbing'; return;
+  }
+
+  if(calibMode) {
+    iMode='calib-draw'; drawStart={ix,iy}; return;
+  }
+
+  /* Try to hit an existing caliper */
+  const hit=hitTest(cx,cy);
+  if(hit.type==='body'){
+    iMode='drag-body'; dragTarget=hit.m;
+    dragOff={dx:ix-hit.m.x1, dy:iy-hit.m.y1};
+    selectedId=hit.m.id; canvasWrap.style.cursor='move';
+    render(); updateSidebar(); return;
+  }
+  if(hit.type==='end1'){
+    iMode='drag-end1'; dragTarget=hit.m;
+    selectedId=hit.m.id; canvasWrap.style.cursor='crosshair';
+    render(); updateSidebar(); return;
+  }
+  if(hit.type==='end2'){
+    iMode='drag-end2'; dragTarget=hit.m;
+    selectedId=hit.m.id; canvasWrap.style.cursor='crosshair';
+    render(); updateSidebar(); return;
+  }
+
+  /* Start drawing */
+  iMode='draw'; drawStart={ix,iy};
+}
+
+function handleMove(e) {
+  const {cx,cy}=evPt(e);
+  const {ix,iy}=toImg(cx,cy);
+  sbPos.textContent=`x:${Math.round(cx)} y:${Math.round(cy)}`;
+
+  if(iMode==='pan' && panOrigin){
+    offX=panOrigin.offX+(cx-panOrigin.cx);
+    offY=panOrigin.offY+(cy-panOrigin.cy);
+    applyTransform(); render(); return;
+  }
+
+  if((iMode==='draw'||iMode==='calib-draw') && drawStart){
+    renderPreview(drawStart,{ix,iy}); return;
+  }
+
+  if(iMode==='drag-body' && dragTarget){
+    dragTarget.x1=ix-dragOff.dx; dragTarget.y1=iy-dragOff.dy;
+    dragTarget.x2=dragTarget.x1+(dragTarget._spanX||0);
+    dragTarget.y2=dragTarget.y1+(dragTarget._spanY||0);
+    render(); updateSidebar(); return;
+  }
+  if(iMode==='drag-end1' && dragTarget){
+    dragTarget.x1=ix; dragTarget.y1=iy;
+    render(); updateSidebar(); return;
+  }
+  if(iMode==='drag-end2' && dragTarget){
+    dragTarget.x2=ix; dragTarget.y2=iy;
+    render(); updateSidebar(); return;
+  }
+
+  /* Hover cursor feedback (desktop only) */
+  if(!panSticky && imgLoaded){
+    const hit=hitTest(cx,cy);
+    if(hit.type==='body') canvasWrap.style.cursor='move';
+    else if(hit.type==='end1'||hit.type==='end2') canvasWrap.style.cursor='crosshair';
+    else canvasWrap.style.cursor='crosshair';
+  }
+}
+
+function handleUp(e) {
+  const {cx,cy}=evPt(e);
+  const {ix,iy}=toImg(cx,cy);
+
+  if(iMode==='pan'){
+    iMode='idle'; panOrigin=null;
+    canvasWrap.style.cursor=panSticky?'grab':'crosshair'; return;
+  }
+
+  if(iMode==='drag-body'||iMode==='drag-end1'||iMode==='drag-end2'){
+    if(dragTarget){
+      dragTarget._spanX=dragTarget.x2-dragTarget.x1;
+      dragTarget._spanY=dragTarget.y2-dragTarget.y1;
+    }
+    iMode='idle'; dragTarget=null;
+    /* after adjusting a caliper, go back to pan so user can navigate */
+    panSticky=true; updatePanButton();
+    render(); updateSidebar(); return;
+  }
+
+  if(iMode==='calib-draw' && drawStart && calibMode){
+    const spanIx=Math.abs(ix-drawStart.ix);
+    iMode='idle'; drawStart=null; calibMode=false;
+    if(spanIx<3){ render(); return; }
+    calibPendingPx=spanIx;
+    openCalibValModal(); render(); return;
+  }
+
+  if(iMode==='draw' && drawStart){
+    const spanIx=Math.abs(ix-drawStart.ix);
+    iMode='idle';
+    if(spanIx<3){ drawStart=null; render(); return; }
+    placeMeasurement(drawStart,{ix,iy});
+    drawStart=null;
+    /* AUTO-PAN after placing caliper */
+    panSticky=true; updatePanButton(); setMode('pan');
+    canvasWrap.style.cursor='grab'; return;
+  }
+
+  iMode='idle'; updateCursor();
+}
+
+/* ═══════════════════════════════════════════════
+   PLACE MEASUREMENT
+═══════════════════════════════════════════════ */
+function placeMeasurement(start, end) {
+  const base=activeTool==='CUSTOM'?customLabel:activeTool;
+  if(!counters[base]) counters[base]=0;
+  counters[base]++;
+  const id=Date.now()+Math.random();
+  const color=TOOLS[activeTool]?.color||'#e08852';
+  const m={
+    id, toolKey:activeTool, baseLabel:base,
+    label:`${base}${counters[base]}`,
+    color,
+    x1:start.ix, y1:start.iy,
+    x2:end.ix,   y2:end.iy,
+    _spanX:end.ix-start.ix,
+    _spanY:end.iy-start.iy,
+  };
+  measurements.push(m);
+  selectedId=id;
+  render(); updateSidebar();
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER
+═══════════════════════════════════════════════ */
+function render() {
+  const cw=canvasWrap.clientWidth, ch=canvasWrap.clientHeight;
+  overlay.setAttribute('width',cw); overlay.setAttribute('height',ch);
+
+  const byBase={};
+  measurements.forEach(m=>(byBase[m.baseLabel]=byBase[m.baseLabel]||[]).push(m));
+
+  let svg='';
+  measurements.forEach(m=>{
+    const grp=byBase[m.baseLabel];
+    const shades=makeShades(m.color,grp.length);
+    const col=shades[grp.indexOf(m)];
+    const sel=m.id===selectedId;
+
+    const p1=toCanvas(m.x1,m.y1), p2=toCanvas(m.x2,m.y2);
+    const midY=(p1.cy+p2.cy)/2;
+    const midX=(p1.cx+p2.cx)/2;
+    const tickH=sel?16:12;
+    const sw=sel?2.5:1.8;
+    const op=sel?1:0.88;
+    /* Handle circle radius — larger when selected, smaller otherwise */
+    const hr=sel?11:8;
+
+    const val=fmtValue(m.x2-m.x1, m.y2-m.y1);
+    const labelStr=val ? `${m.label}  ${val}` : m.label;
+
+    svg+=`<g opacity="${op}">
+      <!-- body bar -->
+      <line x1="${p1.cx}" y1="${midY}" x2="${p2.cx}" y2="${midY}" stroke="${col}" stroke-width="${sw}"/>
+      <!-- tick marks -->
+      <line x1="${p1.cx}" y1="${midY-tickH}" x2="${p1.cx}" y2="${midY+tickH}" stroke="${col}" stroke-width="${sw}"/>
+      <line x1="${p2.cx}" y1="${midY-tickH}" x2="${p2.cx}" y2="${midY+tickH}" stroke="${col}" stroke-width="${sw}"/>
+      <!-- endpoint handle circles — drag targets -->
+      <circle cx="${p1.cx}" cy="${midY}" r="${hr}" fill="${col}" fill-opacity="${sel?0.35:0.22}" stroke="${col}" stroke-width="${sel?2:1.5}"/>
+      <circle cx="${p2.cx}" cy="${midY}" r="${hr}" fill="${col}" fill-opacity="${sel?0.35:0.22}" stroke="${col}" stroke-width="${sel?2:1.5}"/>
+      <!-- label -->
+      <text x="${midX}" y="${midY-tickH-4}" text-anchor="middle"
+            fill="${col}" stroke="#0a0a0a" stroke-width="3"
+            stroke-linejoin="round" paint-order="stroke"
+            font-size="11" font-family="'JetBrains Mono',monospace" font-weight="700"
+            >${labelStr}</text>
+    </g>`;
+  });
+
+  overlay.innerHTML=svg;
+
+  const note=noteInput.value.trim();
+  noteDisplay.textContent=note?'📋 '+note:'';
+  noteDisplay.style.display=note?'block':'none';
+  sbCount.textContent=`Calipers: ${measurements.length}`;
+}
+
+function renderPreview(start, end) {
+  render();
+  const p1=toCanvas(start.ix,start.iy), p2=toCanvas(end.ix,end.iy);
+  const midY=(p1.cy+p2.cy)/2, midX=(p1.cx+p2.cx)/2;
+  const isCalib=calibMode;
+  const col=isCalib?'#f0883e':(TOOLS[activeTool]?.color||'#e08852');
+  const val=fmtValue(end.ix-start.ix, end.iy-start.iy);
+  const labelStr=isCalib?'CALIB SPAN':(val ? `preview  ${val}` : 'preview');
+
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('opacity','0.5');
+  g.innerHTML=`
+    <line x1="${p1.cx}" y1="${midY-10}" x2="${p1.cx}" y2="${midY+10}" stroke="${col}" stroke-width="1.5"/>
+    <line x1="${p2.cx}" y1="${midY-10}" x2="${p2.cx}" y2="${midY+10}" stroke="${col}" stroke-width="1.5"/>
+    <line x1="${p1.cx}" y1="${midY}" x2="${p2.cx}" y2="${midY}" stroke="${col}" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <text x="${midX}" y="${midY-14}" text-anchor="middle" fill="${col}"
+          stroke="#0a0a0a" stroke-width="3" paint-order="stroke"
+          font-size="10" font-family="'JetBrains Mono',monospace" font-weight="700"
+          >${labelStr}</text>`;
+  overlay.appendChild(g);
+}
+
+/* ═══════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════ */
+function updateSidebar() {
+  const byBase={};
+  measurements.forEach(m=>(byBase[m.baseLabel]=byBase[m.baseLabel]||[]).push(m));
+
+  measureList.innerHTML='';
+  Object.entries(byBase).forEach(([base,grp])=>{
+    const shades=makeShades(grp[0].color,grp.length);
+    const hdr=document.createElement('div');
+    hdr.className='meas-group-hdr'; hdr.textContent=base;
+    measureList.appendChild(hdr);
+
+    grp.forEach((m,i)=>{
+      const col=shades[i];
+      const item=document.createElement('div');
+      item.className='meas-item'+(m.id===selectedId?' selected':'');
+      const val=fmtValue(m.x2-m.x1, m.y2-m.y1);
+      const valHtml=val
+        ? `<span class="meas-value cal">${val}</span>`
+        : `<span class="meas-value">—</span>`;
+      item.innerHTML=`
+        <div class="meas-dot" style="background:${col}"></div>
+        <span class="meas-label" style="color:${col}">${m.label}</span>
+        ${valHtml}
+        <button class="meas-del" title="Delete">×</button>`;
+      item.addEventListener('click',()=>{ selectedId=m.id; render(); updateSidebar(); });
+      item.querySelector('.meas-del').addEventListener('click', ev=>{
+        ev.stopPropagation();
+        measurements=measurements.filter(x=>x.id!==m.id);
+        if(selectedId===m.id) selectedId=null;
+        render(); updateSidebar();
+      });
+      measureList.appendChild(item);
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   CALIBRATION
+═══════════════════════════════════════════════ */
+function updateCalibUI() {
+  const btn=document.getElementById('calib-btn');
+  if(msPxRatio!==null){
+    btn.classList.add('calibrated'); btn.textContent='⊕ Cal ✓';
+    calibStatus.className='cal'; calibStatus.textContent=`${msPxRatio.toFixed(4)} ms/px`;
+    sbCalMode.textContent='CAL'; sbCalMode.style.color='var(--ok)';
+  } else {
+    btn.classList.remove('calibrated'); btn.textContent='⊕ Cal';
+    calibStatus.className=''; calibStatus.style.display='none';
+    sbCalMode.textContent='no cal'; sbCalMode.style.color='var(--text-muted)';
+  }
+}
+
+document.getElementById('calib-btn').addEventListener('click',()=>{
+  if(msPxRatio!==null){
+    if(confirm('Clear calibration?')){ msPxRatio=null; updateCalibUI(); render(); updateSidebar(); }
+    return;
+  }
+  document.getElementById('calib-modal').classList.add('open');
+});
+document.getElementById('calib-cancel').addEventListener('click',()=>document.getElementById('calib-modal').classList.remove('open'));
+document.getElementById('calib-ok').addEventListener('click',()=>{
+  document.getElementById('calib-modal').classList.remove('open');
+  calibMode=true;
+  /* Switch out of pan so drawing is active for calibration */
+  panSticky=false; updatePanButton();
+  setMode('calib-draw');
+  canvasWrap.style.cursor='crosshair';
+  canvasWrap.classList.add('drawing');
+});
+
+function openCalibValModal() {
+  document.getElementById('calib-ms-input').value='';
+  document.getElementById('calib-val-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('calib-ms-input').focus(), 50);
+}
+document.getElementById('calib-val-cancel').addEventListener('click',()=>{
+  document.getElementById('calib-val-modal').classList.remove('open');
+  calibPendingPx=null; updateCalibUI();
+});
+document.getElementById('calib-val-ok').addEventListener('click', applyCalib);
+document.getElementById('calib-ms-input').addEventListener('keydown', e=>{ if(e.key==='Enter') applyCalib(); });
+
+function applyCalib() {
+  const ms=parseFloat(document.getElementById('calib-ms-input').value);
+  if(!ms||ms<=0||!calibPendingPx) return;
+  msPxRatio=ms/calibPendingPx;
+  calibPendingPx=null;
+  document.getElementById('calib-val-modal').classList.remove('open');
+  updateCalibUI(); render(); updateSidebar();
+  panSticky=true; updatePanButton(); setMode('pan');
+  canvasWrap.style.cursor='grab';
+}
+
+/* ═══════════════════════════════════════════════
+   CUSTOM MODAL
+═══════════════════════════════════════════════ */
+const customModal=document.getElementById('custom-modal');
+const customLabelInput=document.getElementById('custom-label-input');
+function openCustomModal(){
+  customLabelInput.value=''; customModal.classList.add('open');
+  setTimeout(()=>customLabelInput.focus(), 50);
+}
+document.getElementById('custom-cancel').addEventListener('click',()=>customModal.classList.remove('open'));
+document.getElementById('custom-ok').addEventListener('click', confirmCustom);
+customLabelInput.addEventListener('keydown', e=>{
+  if(e.key==='Enter') confirmCustom();
+  if(e.key==='Escape') customModal.classList.remove('open');
+});
+function confirmCustom(){
+  const v=customLabelInput.value.trim().toUpperCase().slice(0,10);
+  if(!v) return;
+  customLabel=v; customModal.classList.remove('open');
+  setTool('CUSTOM');
+  document.querySelector('[data-tool="CUSTOM"]').textContent=`✎ ${v}`;
+}
+
+/* ═══════════════════════════════════════════════
+   NOTE
+═══════════════════════════════════════════════ */
+noteInput.addEventListener('input',()=>{
+  const words=noteInput.value.trim().split(/\s+/).filter(Boolean);
+  if(words.length>30) noteInput.value=words.slice(0,30).join(' ');
+  render();
+});
+
+/* ═══════════════════════════════════════════════
+   CLEAR
+═══════════════════════════════════════════════ */
+document.getElementById('clear-btn').addEventListener('click',()=>{
+  measurements=[]; counters={}; selectedId=null;
+  render(); updateSidebar();
+});
+
+/* ═══════════════════════════════════════════════
+   EXPORT PNG
+═══════════════════════════════════════════════ */
+document.getElementById('export-btn').addEventListener('click',()=>{
+  if(!imgLoaded) return;
+  const EX=2;
+  const canvas=document.createElement('canvas');
+  canvas.width=imgNatW*EX; canvas.height=imgNatH*EX;
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(ecgImg, 0, 0, canvas.width, canvas.height);
+
+  const byBase={};
+  measurements.forEach(m=>(byBase[m.baseLabel]=byBase[m.baseLabel]||[]).push(m));
+
+  measurements.forEach(m=>{
+    const grp=byBase[m.baseLabel];
+    const col=makeShades(m.color,grp.length)[grp.indexOf(m)];
+    const sx1=m.x1*EX, sx2=m.x2*EX;
+    const midY=((m.y1+m.y2)/2)*EX, midX=(sx1+sx2)/2;
+    const tH=22, lw=2.5, hr=12;
+    ctx.strokeStyle=col; ctx.lineWidth=lw;
+    [[sx1,midY-tH,sx1,midY+tH],[sx2,midY-tH,sx2,midY+tH],[sx1,midY,sx2,midY]].forEach(([x1,y1,x2,y2])=>{
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    });
+    /* endpoint circles on export */
+    [sx1,sx2].forEach(cx=>{
+      ctx.beginPath(); ctx.arc(cx,midY,hr,0,Math.PI*2);
+      ctx.fillStyle=col+'55'; ctx.fill();
+      ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.stroke();
+    });
+    const val=fmtValue(m.x2-m.x1, m.y2-m.y1);
+    const lbl=val?`${m.label}  ${val}`:m.label;
+    ctx.font='700 22px monospace'; ctx.textAlign='center';
+    ctx.strokeStyle='#000'; ctx.lineWidth=4;
+    ctx.strokeText(lbl, midX, midY-tH-6);
+    ctx.fillStyle=col; ctx.fillText(lbl, midX, midY-tH-6);
+  });
+
+  const wm=msPxRatio!==null?`Calibrated: ${msPxRatio.toFixed(4)} ms/px`:`No calibration applied`;
+  ctx.font='500 16px monospace'; ctx.textAlign='right';
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.fillText(wm, canvas.width-14, canvas.height-12);
+
+  const note=noteInput.value.trim();
+  if(note){
+    const pad=18; ctx.font='700 24px monospace'; ctx.textAlign='left';
+    const tw=ctx.measureText('📋 '+note).width+pad*2;
+    ctx.fillStyle='rgba(13,17,23,.9)';
+    ctx.fillRect(10, canvas.height-60, tw, 48);
+    ctx.strokeStyle='#30363d'; ctx.lineWidth=1;
+    ctx.strokeRect(10, canvas.height-60, tw, 48);
+    ctx.fillStyle='#e6edf3';
+    ctx.fillText('📋 '+note, 10+pad, canvas.height-24);
+  }
+
+  const a=document.createElement('a');
+  a.download='ecg-annotated.png';
+  a.href=canvas.toDataURL('image/png');
+  a.click();
+});
+
+/* ═══════════════════════════════════════════════
+   KEYBOARD SHORTCUTS
+═══════════════════════════════════════════════ */
+document.addEventListener('keydown', e=>{
+  const inputs=[noteInput, customLabelInput, document.getElementById('calib-ms-input')];
+  if(inputs.includes(e.target)) return;
+  if((e.key==='Delete'||e.key==='Backspace') && selectedId){
+    measurements=measurements.filter(m=>m.id!==selectedId);
+    selectedId=null; render(); updateSidebar();
+  }
+  const map={'1':'RR','2':'PR','3':'PP','4':'QRS','5':'QT'};
+  if(map[e.key]) setTool(map[e.key]);
+  if(e.key==='p'||e.key==='P'){
+    panSticky=!panSticky;
+    if(panSticky) document.querySelectorAll('.tool-btn').forEach(b=>b.classList.remove('active'));
+    updatePanButton();
+  }
+  if(e.key==='Escape'){
+    calibMode=false; iMode='idle'; drawStart=null;
+    panSticky=true; updatePanButton(); setMode('pan'); updateCursor(); render();
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+window.addEventListener('resize', ()=>{ if(imgLoaded){ fitImage(); render(); } });
+updateCalibUI();
+/* Start in Pan mode — user can navigate before choosing a tool */
+panSticky=true;
+updatePanButton();
+setMode('pan');
+updateCursor();
+</script>
+</body>
+</html>
